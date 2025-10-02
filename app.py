@@ -32,6 +32,9 @@ def extract_json(raw_text):
 # Endpoint: Generate AI WWE question
 import random
 
+@app.get("/")
+def root():
+    return {"message": "Welcome to the WWE Quiz API! Use /question to get a question."}
 @app.get("/question")
 def get_question():
     system_prompt = """
