@@ -107,6 +107,3 @@ def get_question():
 def check_answer(req: AnswerRequest):
     correct = req.user_answer.strip().upper() == req.correct_answer.strip().upper()
     return {"correct": correct}
-
-if __name__ == "__main__":
-    uvicorn.run("app:app", host="localhost", port=8000, reload=True)
