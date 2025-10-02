@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+streamlit
+openai
+pydantic
+requests
+python-dotenv
+openai-errors
