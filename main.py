@@ -9,7 +9,7 @@ from openai import OpenAI
 
 # Load environment variables
 load_dotenv()
-OPENAI_API_KEY = st.secrets["general"]["OPENAI_API_KEY"]
+OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
 
 # Initialize OpenAI client
 client = OpenAI(api_key=OPENAI_API_KEY)
