@@ -103,7 +103,7 @@ def reset_quiz():
     st.session_state.used_questions = []
     st.session_state.question_data = None
     st.session_state.start_time = None
-    st.experimental_rerun()
+    st.rerun()
 
 # Start Quiz UI
 if not st.session_state.started:
@@ -120,7 +120,7 @@ if not st.session_state.started:
         st.session_state.used_questions = []
         st.session_state.question_data = get_question(st.session_state.difficulty)
         st.session_state.start_time = time.time()
-        st.experimental_rerun()
+        st.rerun()
 
 # Main Quiz
 if st.session_state.started and st.session_state.question_data:
@@ -166,7 +166,7 @@ if st.session_state.started and st.session_state.question_data:
                 )
                 st.session_state.answered = False
                 st.session_state.start_time = time.time()
-                st.experimental_rerun()
+                st.rerun()
         else:
             st.success(f"🏁 Quiz Finished! Final Score: {st.session_state.score}/10")
             if st.button("🔄 Restart Quiz"):
