@@ -1,29 +1,18 @@
 # main.py
 import streamlit as st
-import os, json, random, re, sqlite3, time
-import numpy as np
+import os, json, random, re, time, numpy as np
 from dotenv import load_dotenv
 from openai import OpenAI
-
-# ---------------- DATABASE SETUP ----------------
-conn = sqlite3.connect("questions.db", check_same_thread=False)
-c = conn.cursor()
-c.execute('''
-CREATE TABLE IF NOT EXISTS questions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    question TEXT UNIQUE,
-    options TEXT,
-    answer TEXT,
-    difficulty TEXT,
-    embedding TEXT
-)
-''')
-conn.commit()
+from exa import ExaClient
 
 # ---------------- OPENAI SETUP ----------------
 load_dotenv()
 OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
 client = OpenAI(api_key=OPENAI_API_KEY)
+
+# ---------------- EXA.AI SETUP ----------------
+EXA_API_KEY = st.secrets["EXA_API_KEY"]
+exa = ExaClient(api_key=EXA_API_KEY)
 
 # ---------------- HELPER FUNCTIONS ----------------
 def extract_json(raw_text):
@@ -41,26 +30,23 @@ def cosine_similarity(vec1, vec2):
     v1, v2 = np.array(vec1), np.array(vec2)
     return np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2))
 
-def is_semantic_duplicate_global(new_embedding, threshold=0.9):
-    c.execute("SELECT embedding FROM questions")  # check all previous questions
-    rows = c.fetchall()
-    for (emb,) in rows:
-        if emb:
-            old_emb = json.loads(emb)
-            sim = cosine_similarity(new_embedding, old_emb)
-            if sim >= threshold:
-                return True
+# ---------------- EXA.AI DUPLICATE CHECK ----------------
+def is_semantic_duplicate_exa(new_embedding, threshold=0.9):
+    results = exa.query(vector=new_embedding, top_k=1)
+    if results:
+        sim = results[0]['similarity']
+        if sim >= threshold:
+            return True
     return False
 
-def save_question_to_db(qdata, difficulty, embedding):
-    try:
-        c.execute(
-            "INSERT INTO questions (question, options, answer, difficulty, embedding) VALUES (?, ?, ?, ?, ?)",
-            (qdata["question"], json.dumps(qdata["options"]), qdata["answer"], difficulty, json.dumps(embedding))
-        )
-        conn.commit()
-    except sqlite3.IntegrityError:
-        pass
+def save_question_to_exa(qdata, difficulty, embedding):
+    metadata = {
+        "question": qdata["question"],
+        "options": qdata["options"],
+        "answer": qdata["answer"],
+        "difficulty": difficulty
+    }
+    exa.insert(vector=embedding, metadata=metadata)
 
 # ---------------- QUESTION GENERATION ----------------
 def get_question(difficulty="Medium"):
@@ -112,12 +98,12 @@ def get_question(difficulty="Medium"):
             question_data["answer"] = new_answer_letter
             question_data["correct_answer_full"] = f"{new_answer_letter}: {correct_text}"
 
-            # Check for duplicates globally
+            # Check for duplicates using Exa.ai
             new_emb = get_embedding(question_data["question"])
-            if is_semantic_duplicate_global(new_emb):
+            if is_semantic_duplicate_exa(new_emb):
                 continue
 
-            save_question_to_db(question_data, difficulty, new_emb)
+            save_question_to_exa(question_data, difficulty, new_emb)
             return question_data
 
         except Exception as e:
