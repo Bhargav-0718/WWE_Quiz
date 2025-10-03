@@ -173,37 +173,44 @@ else:
     st.progress(st.session_state.question_count / st.session_state.max_questions)
 
     # Show question
-    qdata = st.session_state.question_data
-    if qdata:
-        update_timer()
-        st.subheader(qdata["question"])
-        st.write(f"⏱️ Time left: {st.session_state.time_left} sec")
+qdata = st.session_state.question_data
+if qdata:
+    update_timer()
+    st.subheader(qdata["question"])
+    st.write(f"⏱️ Time left: {st.session_state.time_left} sec")
 
-        if st.session_state.time_left > 0 and not st.session_state.answered:
-            choice = st.radio("Select your answer:", qdata["options"], key=f"opt_{qdata['question']}")
-            if st.button("Submit Answer"):
-                selected_letter = choice.split(":")[0].strip()
-                st.session_state.answered = True
-                if selected_letter == qdata["answer"]:
-                    st.session_state.score += 1
-                    st.success(f"✅ Correct! {qdata['correct_answer_full']}")
-                else:
-                    st.error(f"❌ Wrong! Correct: {qdata['correct_answer_full']}")
-        elif not st.session_state.answered:
+    choice = None
+    if st.session_state.time_left > 0 and not st.session_state.answered:
+        choice = st.radio("Select your answer:", qdata["options"], key=f"opt_{qdata['question']}")
+    
+    # Automatically handle answer or timeout
+    auto_advance = False
+    if not st.session_state.answered:
+        if st.button("Submit Answer") and choice:
+            selected_letter = choice.split(":")[0].strip()
+            st.session_state.answered = True
+            if selected_letter == qdata["answer"]:
+                st.session_state.score += 1
+                st.success(f"✅ Correct! {qdata['correct_answer_full']}")
+            else:
+                st.error(f"❌ Wrong! Correct: {qdata['correct_answer_full']}")
+            auto_advance = True
+        elif st.session_state.time_left == 0:
             st.error("⏰ Time's up! No answer recorded.")
             st.session_state.answered = True
+            auto_advance = True
+    
+    # Automatically load next question if answered
+    if st.session_state.answered and auto_advance:
+        if st.session_state.question_count + 1 < st.session_state.max_questions:
+            st.session_state.question_count += 1
+            st.session_state.question_data = get_question(st.session_state.difficulty)
+            st.session_state.answered = False
+            st.session_state.timer_start = time.time()
+            st.session_state.time_left = 20
+        else:
+            st.success(f"🎉 Quiz Over! Final Score: {st.session_state.score}/{st.session_state.max_questions}")
 
-        # Next Question button
-        if st.session_state.answered:
-            if st.session_state.question_count + 1 < st.session_state.max_questions:
-                if st.button("➡️ Next Question"):
-                    st.session_state.question_count += 1
-                    st.session_state.question_data = get_question(st.session_state.difficulty)
-                    st.session_state.answered = False
-                    st.session_state.timer_start = time.time()
-                    st.session_state.time_left = 20
-            else:
-                st.success(f"🎉 Quiz Over! Final Score: {st.session_state.score}/{st.session_state.max_questions}")
 
     st.write(f"Score: {st.session_state.score}")
 
