@@ -1,10 +1,6 @@
 # main.py
 import streamlit as st
-import os
-import json
-import random
-import re
-import sqlite3
+import os, json, random, re, sqlite3, time
 import numpy as np
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -38,10 +34,7 @@ def extract_json(raw_text):
     return json.loads(match.group(0)), None
 
 def get_embedding(text):
-    resp = client.embeddings.create(
-        model="text-embedding-3-small",
-        input=text
-    )
+    resp = client.embeddings.create(model="text-embedding-3-small", input=text)
     return resp.data[0].embedding
 
 def cosine_similarity(vec1, vec2):
@@ -49,7 +42,7 @@ def cosine_similarity(vec1, vec2):
     return np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2))
 
 def is_semantic_duplicate(new_embedding, threshold=0.9):
-    c.execute("SELECT embedding FROM questions")
+    c.execute("SELECT embedding FROM questions ORDER BY id DESC LIMIT 25")  # only check last 25 for freshness
     rows = c.fetchall()
     for (emb,) in rows:
         if emb:
@@ -85,100 +78,135 @@ def get_question(difficulty="Medium"):
     """
     user_prompt = "Generate 1 MCQ question in JSON format."
 
-    try:
-        while True:
-            response = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ]
-            )
+    while True:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ]
+        )
 
-            raw_content = response.choices[0].message.content.strip()
-            question_data, _ = extract_json(raw_content)
-            if not question_data:
-                continue
+        raw_content = response.choices[0].message.content.strip()
+        question_data, _ = extract_json(raw_content)
+        if not question_data:
+            continue
 
-            # Shuffle options
-            options = question_data["options"]
-            correct_letter = question_data["answer"].strip().upper()
-            options_dict = {opt.split(":")[0].strip(): opt.split(":")[1].strip() for opt in options}
-            correct_text = options_dict[correct_letter]
+        # Shuffle options
+        options = question_data["options"]
+        correct_letter = question_data["answer"].strip().upper()
+        options_dict = {opt.split(":")[0].strip(): opt.split(":")[1].strip() for opt in options}
+        correct_text = options_dict[correct_letter]
 
-            shuffled_texts = list(options_dict.values())
-            random.shuffle(shuffled_texts)
+        shuffled_texts = list(options_dict.values())
+        random.shuffle(shuffled_texts)
 
-            letters = ["A", "B", "C", "D"]
-            new_options = []
-            new_answer_letter = None
-            for i, text in enumerate(shuffled_texts):
-                new_options.append(f"{letters[i]}: {text}")
-                if text == correct_text:
-                    new_answer_letter = letters[i]
+        letters = ["A", "B", "C", "D"]
+        new_options, new_answer_letter = [], None
+        for i, text in enumerate(shuffled_texts):
+            new_options.append(f"{letters[i]}: {text}")
+            if text == correct_text:
+                new_answer_letter = letters[i]
 
-            question_data["options"] = new_options
-            question_data["answer"] = new_answer_letter
-            question_data["correct_answer_full"] = f"{new_answer_letter}: {correct_text}"
+        question_data["options"] = new_options
+        question_data["answer"] = new_answer_letter
+        question_data["correct_answer_full"] = f"{new_answer_letter}: {correct_text}"
 
-            # Get embedding & check similarity
-            new_embedding = get_embedding(question_data["question"])
-            if is_semantic_duplicate(new_embedding):
-                continue  # regenerate
+        # Embedding check
+        new_emb = get_embedding(question_data["question"])
+        if is_semantic_duplicate(new_emb):
+            continue
 
-            # Save to DB
-            save_question_to_db(question_data, difficulty, new_embedding)
-            return question_data
-
-    except Exception as e:
-        st.error(f"Error generating question: {str(e)}")
-        return None
+        save_question_to_db(question_data, difficulty, new_emb)
+        return question_data
 
 # ---------------- STREAMLIT UI ----------------
 st.title("🤼 WWE Quiz")
 
 # Session state
-if "question_data" not in st.session_state:
+if "started" not in st.session_state:
     st.session_state.update({
+        "started": False,
         "question_data": None,
         "score": 0,
         "answered": False,
-        "difficulty": "Medium"
+        "difficulty": "Medium",
+        "timer_start": None,
+        "time_left": 20,
+        "question_count": 0,
+        "max_questions": 10
     })
 
-# Difficulty selector
-difficulty = st.radio("Choose Difficulty:", ["Easy", "Medium", "Hard"], index=["Easy", "Medium", "Hard"].index(st.session_state.difficulty))
-st.session_state.difficulty = difficulty
+# Reset function
+def reset_quiz():
+    st.session_state.update({
+        "started": False,
+        "question_data": None,
+        "score": 0,
+        "answered": False,
+        "timer_start": None,
+        "time_left": 20,
+        "question_count": 0
+    })
 
-# Load next question
-def load_next_question():
-    st.session_state.question_data = get_question(st.session_state.difficulty)
-    st.session_state.answered = False
+# Timer updater
+def update_timer():
+    if st.session_state.timer_start:
+        elapsed = int(time.time() - st.session_state.timer_start)
+        st.session_state.time_left = max(0, 20 - elapsed)
 
-col1, col2 = st.columns(2)
-with col1:
-    if st.button("Next Question"):
-        load_next_question()
+# Start Quiz Button
+if not st.session_state.started:
+    if st.button("▶️ Start Quiz"):
+        st.session_state.started = True
+        st.session_state.question_data = get_question(st.session_state.difficulty)
+        st.session_state.timer_start = time.time()
+        st.session_state.time_left = 20
+else:
+    # Difficulty selector only before starting
+    difficulty = st.radio("Choose Difficulty:", ["Easy", "Medium", "Hard"],
+                          index=["Easy", "Medium", "Hard"].index(st.session_state.difficulty),
+                          disabled=st.session_state.started)
+    st.session_state.difficulty = difficulty
 
-# Show question
-qdata = st.session_state.question_data
-if qdata:
-    st.subheader(qdata["question"])
-    user_choice = st.radio("Select your answer:", qdata["options"], key=f"options_{qdata['question']}")
+    # Progress bar
+    st.progress(st.session_state.question_count / st.session_state.max_questions)
 
-    if st.button("Submit Answer") and not st.session_state.answered:
-        selected_letter = user_choice.split(":")[0].strip()
-        correct_letter = qdata["answer"]
-        st.session_state.answered = True
-        if selected_letter == correct_letter:
-            st.session_state.score += 1
-            st.success(f"✅ Correct! Answer: {qdata['correct_answer_full']}")
-        else:
-            st.error(f"❌ Wrong! Correct answer: {qdata['correct_answer_full']}")
+    # Show question
+    qdata = st.session_state.question_data
+    if qdata:
+        update_timer()
+        st.subheader(qdata["question"])
+        st.write(f"⏱️ Time left: {st.session_state.time_left} sec")
 
-# Score
-st.write(f"Your score: {st.session_state.score}")
+        if st.session_state.time_left > 0 and not st.session_state.answered:
+            choice = st.radio("Select your answer:", qdata["options"], key=f"opt_{qdata['question']}")
+            if st.button("Submit Answer"):
+                selected_letter = choice.split(":")[0].strip()
+                st.session_state.answered = True
+                if selected_letter == qdata["answer"]:
+                    st.session_state.score += 1
+                    st.success(f"✅ Correct! {qdata['correct_answer_full']}")
+                else:
+                    st.error(f"❌ Wrong! Correct: {qdata['correct_answer_full']}")
+        elif not st.session_state.answered:
+            st.error("⏰ Time's up! No answer recorded.")
+            st.session_state.answered = True
 
-# Auto-load first question
-if st.session_state.question_data is None:
-    load_next_question()
+        # Next Question button
+        if st.session_state.answered:
+            if st.session_state.question_count + 1 < st.session_state.max_questions:
+                if st.button("➡️ Next Question"):
+                    st.session_state.question_count += 1
+                    st.session_state.question_data = get_question(st.session_state.difficulty)
+                    st.session_state.answered = False
+                    st.session_state.timer_start = time.time()
+                    st.session_state.time_left = 20
+            else:
+                st.success(f"🎉 Quiz Over! Final Score: {st.session_state.score}/{st.session_state.max_questions}")
+
+    st.write(f"Score: {st.session_state.score}")
+
+    # Reset button
+    if st.button("🔄 Reset Quiz"):
+        reset_quiz()
