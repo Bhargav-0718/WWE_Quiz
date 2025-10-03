@@ -178,6 +178,8 @@ if not st.session_state.started:
 
     # Show question
 # Show question
+import time
+
 qdata = st.session_state.question_data
 if qdata:
     update_timer()
@@ -185,17 +187,16 @@ if qdata:
     st.write(f"⏱️ Time left: {st.session_state.time_left} sec")
 
     choice = None
-    if st.session_state.time_left > 0:
+    if st.session_state.time_left > 0 and not st.session_state.answered:
         choice = st.radio("Select your answer:", qdata["options"], key=f"opt_{qdata['question']}")
 
-    # ---------------- Dynamic Submit / Next Question Button ----------------
-    button_label = "Submit Answer" if not st.session_state.answered else "➡️ Next Question"
-    if st.button(button_label):
-        if not st.session_state.answered:
-            # Submit logic
+    # Button logic
+    if not st.session_state.answered:
+        if st.button("Submit Answer"):
             if choice:
                 selected_letter = choice.split(":")[0].strip()
                 st.session_state.answered = True
+                st.session_state.answer_time = time.time()  # record answer timestamp
                 if selected_letter == qdata["answer"]:
                     st.session_state.score += 1
                     st.success(f"✅ Correct! {qdata['correct_answer_full']}")
@@ -203,14 +204,17 @@ if qdata:
                     st.error(f"❌ Wrong! Correct: {qdata['correct_answer_full']}")
             else:
                 st.warning("Please select an answer before submitting!")
-        else:
-            # Next question logic
+    else:
+        # Auto-advance 5 seconds after displaying the answer
+        elapsed = time.time() - st.session_state.answer_time
+        if elapsed >= 5:
             if st.session_state.question_count < st.session_state.max_questions:
                 st.session_state.question_count += 1
                 st.session_state.question_data = get_question(st.session_state.difficulty)
                 st.session_state.answered = False
                 st.session_state.timer_start = time.time()
                 st.session_state.time_left = 20
+                st.rerun()  # refresh the app to show next question
             else:
                 st.success(f"🎉 Quiz Over! Final Score: {st.session_state.score}/{st.session_state.max_questions}")
 
