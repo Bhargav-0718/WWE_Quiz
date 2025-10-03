@@ -155,19 +155,23 @@ def update_timer():
         elapsed = int(time.time() - st.session_state.timer_start)
         st.session_state.time_left = max(0, 20 - elapsed)
 
-# Start Quiz Button
+# Difficulty selector + Start button
 if not st.session_state.started:
+    st.write("### ⚙️ Select Difficulty")
+    difficulty = st.radio(
+        "Choose Difficulty:", 
+        ["Easy", "Medium", "Hard"],
+        index=["Easy", "Medium", "Hard"].index(st.session_state.difficulty),
+        horizontal=True
+    )
+    st.session_state.difficulty = difficulty
+
     if st.button("▶️ Start Quiz"):
         st.session_state.started = True
         st.session_state.question_data = get_question(st.session_state.difficulty)
         st.session_state.timer_start = time.time()
         st.session_state.time_left = 20
-else:
-    # Difficulty selector only before starting
-    difficulty = st.radio("Choose Difficulty:", ["Easy", "Medium", "Hard"],
-                          index=["Easy", "Medium", "Hard"].index(st.session_state.difficulty),
-                          disabled=st.session_state.started)
-    st.session_state.difficulty = difficulty
+        st.session_state.question_count = 1
 
     # Progress bar
     st.progress(st.session_state.question_count / st.session_state.max_questions)
