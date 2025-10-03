@@ -1,18 +1,19 @@
 # main.py
 import streamlit as st
 import os, json, random, re, time, numpy as np
+import requests
 from dotenv import load_dotenv
 from openai import OpenAI
-from exa import ExaClient
 
 # ---------------- OPENAI SETUP ----------------
 load_dotenv()
 OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-# ---------------- EXA.AI SETUP ----------------
+# ---------------- EXA.AI REST SETUP ----------------
 EXA_API_KEY = st.secrets["EXA_API_KEY"]
-exa = ExaClient(api_key=EXA_API_KEY)
+EXA_BASE_URL = "https://api.exa.ai/v1"
+HEADERS = {"Authorization": f"Bearer {EXA_API_KEY}"}
 
 # ---------------- HELPER FUNCTIONS ----------------
 def extract_json(raw_text):
@@ -30,15 +31,7 @@ def cosine_similarity(vec1, vec2):
     v1, v2 = np.array(vec1), np.array(vec2)
     return np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2))
 
-# ---------------- EXA.AI DUPLICATE CHECK ----------------
-def is_semantic_duplicate_exa(new_embedding, threshold=0.9):
-    results = exa.query(vector=new_embedding, top_k=1)
-    if results:
-        sim = results[0]['similarity']
-        if sim >= threshold:
-            return True
-    return False
-
+# ---------------- EXA.AI REST FUNCTIONS ----------------
 def save_question_to_exa(qdata, difficulty, embedding):
     metadata = {
         "question": qdata["question"],
@@ -46,7 +39,17 @@ def save_question_to_exa(qdata, difficulty, embedding):
         "answer": qdata["answer"],
         "difficulty": difficulty
     }
-    exa.insert(vector=embedding, metadata=metadata)
+    payload = {"vector": embedding, "metadata": metadata}
+    requests.post(f"{EXA_BASE_URL}/vectors", headers=HEADERS, json=payload)
+
+def is_semantic_duplicate_exa(new_embedding, threshold=0.9):
+    payload = {"vector": new_embedding, "top_k": 1}
+    resp = requests.post(f"{EXA_BASE_URL}/query", headers=HEADERS, json=payload)
+    if resp.status_code == 200:
+        results = resp.json().get("results", [])
+        if results and results[0]["similarity"] >= threshold:
+            return True
+    return False
 
 # ---------------- QUESTION GENERATION ----------------
 def get_question(difficulty="Medium"):
@@ -98,7 +101,7 @@ def get_question(difficulty="Medium"):
             question_data["answer"] = new_answer_letter
             question_data["correct_answer_full"] = f"{new_answer_letter}: {correct_text}"
 
-            # Check for duplicates using Exa.ai
+            # Check for duplicates using Exa.ai REST
             new_emb = get_embedding(question_data["question"])
             if is_semantic_duplicate_exa(new_emb):
                 continue
